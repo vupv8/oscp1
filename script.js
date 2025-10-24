@@ -389,11 +389,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const toggleTheme = () => applyTheme(appState.currentTheme === 'light' ? 'dark' : 'light');
 
   // Logic IP (getLocalIP, handleGetKaliIP) giữ nguyên
-  /* ... getLocalIP, handleGetKaliIP giữ nguyên ... */
 const getLocalIPs = () => {
     return new Promise((resolve) => {
-      let ips = { candidates: [] }; // Chỉ cần mảng candidates
-      const collectedIps = new Set(); // Dùng Set để tránh trùng lặp hiệu quả
+      let ips = { candidates: [] }; 
+      const collectedIps = new Set(); 
+      
+      // LOG 1: Bắt đầu quá trình
+      console.log("--- Bắt đầu thu thập IP WebRTC (Debugging) ---");
 
       try {
         window.RTCPeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
@@ -405,11 +407,18 @@ const getLocalIPs = () => {
         pc.onicecandidate = function(ice){
           if(!ice || !ice.candidate || !ice.candidate.candidate) return;
           
+          const candidateString = ice.candidate.candidate;
+          // LOG 2: Ghi lại toàn bộ chuỗi candidate thô (RAW candidate string)
+          console.log("RAW Candidate:", candidateString); 
+          
           const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3}|[a-f0-9]{1,4}(:[a-f0-9]{1,4}){7})/i;
-          const match = ipRegex.exec(ice.candidate.candidate);
+          const match = ipRegex.exec(candidateString);
           const ip = match ? match[1] : null;
           
           if (ip) {
+             // LOG 3: Ghi lại IP sau khi trích xuất
+             console.log("Extracted IP:", ip); 
+             
              // Thêm các điều kiện lọc cơ bản và kiểm tra trùng lặp bằng Set
              if (
                  ip !== '0.0.0.0' && 
@@ -420,42 +429,47 @@ const getLocalIPs = () => {
              ) {
                 collectedIps.add(ip);
                 ips.candidates.push(ip);
+                // LOG 4: Ghi lại IP hợp lệ được thêm vào danh sách
+                console.log("✅ IP hợp lệ được thêm:", ip);
+             } else {
+                // LOG 5: Ghi lại IP bị loại bỏ do bộ lọc
+                console.log("❌ IP bị loại bỏ (do lọc hoặc trùng lặp):", ip);
              }
           }
         };
         
+        const timeoutDuration = 1200; // Tăng thời gian chờ để WebRTC có thêm thời gian
+        // LOG 6: Đặt timeout
+        console.log(`Chờ ${timeoutDuration}ms để thu thập ICE candidates...`);
+
         setTimeout(() => {
           pc.close();
-
-          // ----------------------------------------------------
-          // LOGIC SẮP XẾP MỚI: Ưu tiên 192.168.45.*
-          // ----------------------------------------------------
+          // LOG 7: Đóng PeerConnection và bắt đầu xử lý kết quả
+          console.log("--- Đã đóng PeerConnection. Bắt đầu xử lý kết quả ---");
           
           if (ips.candidates.length > 0) {
             const ipPriority = (ip) => {
-                // Ưu tiên cao nhất cho IP VPN bạn muốn lấy
                 if (ip.startsWith('192.168.45.')) return 1; 
-                // Sau đó là các IP nội bộ khác (thêm vào nếu cần ưu tiên)
                 if (ip.startsWith('192.168.')) return 2;
                 if (ip.startsWith('10.')) return 3;
                 if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) return 4;
-                // Các IP khác xếp sau
                 return 99;
             };
 
-            // Sắp xếp để IP 192.168.45.* lên đầu danh sách
+            // Sắp xếp
             ips.candidates.sort((a, b) => ipPriority(a) - ipPriority(b));
             
-            // Lọc các IP có độ ưu tiên 99 (IPv6 không phải link-local hoặc IP public) 
-            // Nếu bạn muốn lấy cả IP public thì bỏ dòng filter này.
-            ips.candidates = ips.candidates.filter(ip => ipPriority(ip) <= 99); 
+            // LOG 8: Ghi lại danh sách IP đã sắp xếp
+            console.log("Danh sách IP đã sắp xếp (Ưu tiên 192.168.45.*):", ips.candidates);
           }
           
-          // Trả về mảng đã sắp xếp. IP VPN mong muốn sẽ là phần tử đầu tiên (nếu tìm thấy).
+          // LOG 9: Kết thúc và trả về
+          console.log("--- Kết thúc Debugging. Trả về kết quả ---");
           resolve(ips.candidates); 
 
-        }, 700); 
+        }, timeoutDuration); 
       } catch (e) {
+        // LOG 10: Xử lý lỗi
         console.error("WebRTC Error:", e);
         resolve([]); 
       }
