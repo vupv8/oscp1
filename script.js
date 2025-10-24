@@ -405,7 +405,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const match = ipRegex.exec(ice.candidate.candidate);
           const ip = match ? match[1] : null;
           if (ip) {
-             if (ip !== '0.0.0.0' && ip !== '::1' && !ip.startsWith('127.') && !ip.startsWith('169.254.') && !ips.candidates.includes(ip)) {
+             if (ip !== '0.0.0.0' && ip !== '::1' && !ip.startsWith('127.') && !ip.startsWith('169.254.') && !ips.candidates.includes(ip)&& ip.startsWith('192.168.45')) {
                 ips.candidates.push(ip);
              }
           }
