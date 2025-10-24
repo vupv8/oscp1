@@ -390,10 +390,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Logic IP (getLocalIP, handleGetKaliIP) giữ nguyên
   /* ... getLocalIP, handleGetKaliIP giữ nguyên ... */
- const getLocalIPs = () => {
+const getLocalIPs = () => {
     return new Promise((resolve) => {
-      // Đổi tên biến để phản ánh việc thu thập nhiều IP hơn
-      let ips = { candidates: [] }; 
+      let ips = { candidates: [] }; // Chỉ cần mảng candidates
+      const collectedIps = new Set(); // Dùng Set để tránh trùng lặp hiệu quả
+
       try {
         window.RTCPeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
         const pc = new RTCPeerConnection({ iceServers: [] });
@@ -404,25 +405,20 @@ document.addEventListener('DOMContentLoaded', () => {
         pc.onicecandidate = function(ice){
           if(!ice || !ice.candidate || !ice.candidate.candidate) return;
           
-          // Regex đơn giản hơn, chỉ cần tìm IP
           const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3}|[a-f0-9]{1,4}(:[a-f0-9]{1,4}){7})/i;
           const match = ipRegex.exec(ice.candidate.candidate);
           const ip = match ? match[1] : null;
           
           if (ip) {
-             // Thêm các điều kiện kiểm tra IP nội bộ hợp lệ
-             // Giữ lại điều kiện '192.168.45' của bạn
+             // Thêm các điều kiện lọc cơ bản và kiểm tra trùng lặp bằng Set
              if (
                  ip !== '0.0.0.0' && 
                  ip !== '::1' && 
                  !ip.startsWith('127.') && 
                  !ip.startsWith('169.254.') && 
-                 !ips.candidates.includes(ip) // Đảm bảo không trùng lặp
-                 // Bạn có thể giữ lại điều kiện này nếu muốn lọc ngay lập tức:
-                 // && ip.startsWith('192.168.45') 
-                 // HOẶC bỏ điều kiện này để thu thập tất cả IP nội bộ (private/loopback/public)
+                 !collectedIps.has(ip)
              ) {
-                // Thêm vào danh sách mà không cần điều kiện '192.168.45' nếu muốn thu thập tất cả
+                collectedIps.add(ip);
                 ips.candidates.push(ip);
              }
           }
@@ -432,80 +428,76 @@ document.addEventListener('DOMContentLoaded', () => {
           pc.close();
 
           // ----------------------------------------------------
-          // PHẦN SỬA ĐỔI: Loại bỏ logic sắp xếp và chọn 'preferred'
+          // LOGIC SẮP XẾP MỚI: Ưu tiên 192.168.45.*
           // ----------------------------------------------------
-
-          // Nếu bạn muốn lọc lại danh sách chỉ lấy các IP nội bộ (private IP ranges) 
-          // và bỏ qua các IP public/loopback/invalid, bạn có thể dùng lại hàm này:
-          const isPrivateIP = (ip) => {
-              if (ip.startsWith('192.168.') || ip.startsWith('10.') || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) {
-                  return true;
-              }
-              // Thêm kiểm tra IPv6 nội bộ nếu cần (vd: fe80::/10 cho link-local)
-              if (ip.includes(':') && ip.toLowerCase().startsWith('fe80')) {
-                  return true;
-              }
-              return false;
-          }
-
-          // Lọc lại danh sách để chỉ giữ các IP nội bộ (nếu cần)
-          // Nếu bạn muốn giữ lại các IP nội bộ, hãy dùng dòng này:
-          ips.candidates = ips.candidates.filter(isPrivateIP);
           
-          // Sau khi lọc (hoặc không lọc), ta chỉ trả về danh sách IP
+          if (ips.candidates.length > 0) {
+            const ipPriority = (ip) => {
+                // Ưu tiên cao nhất cho IP VPN bạn muốn lấy
+                if (ip.startsWith('192.168.45.')) return 1; 
+                // Sau đó là các IP nội bộ khác (thêm vào nếu cần ưu tiên)
+                if (ip.startsWith('192.168.')) return 2;
+                if (ip.startsWith('10.')) return 3;
+                if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) return 4;
+                // Các IP khác xếp sau
+                return 99;
+            };
+
+            // Sắp xếp để IP 192.168.45.* lên đầu danh sách
+            ips.candidates.sort((a, b) => ipPriority(a) - ipPriority(b));
+            
+            // Lọc các IP có độ ưu tiên 99 (IPv6 không phải link-local hoặc IP public) 
+            // Nếu bạn muốn lấy cả IP public thì bỏ dòng filter này.
+            ips.candidates = ips.candidates.filter(ip => ipPriority(ip) <= 99); 
+          }
+          
+          // Trả về mảng đã sắp xếp. IP VPN mong muốn sẽ là phần tử đầu tiên (nếu tìm thấy).
           resolve(ips.candidates); 
 
-        }, 700); // Tăng thời gian chờ nếu cần thêm thời gian để thu thập ICE candidates
+        }, 700); 
       } catch (e) {
         console.error("WebRTC Error:", e);
-        resolve([]); // Trả về mảng rỗng nếu có lỗi
+        resolve([]); 
       }
     });
-  };
-  const handleGetKaliIP = async () => {
+};
+ const handleGetKaliIP = async () => {
     // Khởi tạo các trạng thái UI ban đầu
     myKaliIpDisplay.textContent = translations[appState.currentLang]?.gettingIP || 'Getting IP...';
     myKaliIpDisplay.style.display = 'block';
     getKaliIpBtn.disabled = true;
     myKaliIpDisplay.style.color = 'var(--text-secondary)';
-    copyKaliIpBtn.style.display = 'none'; // Ẩn nút copy khi đang load
-    myKaliIpDisplay.title = ''; // Xóa tooltip cũ
+    copyKaliIpBtn.style.display = 'none'; 
+    myKaliIpDisplay.title = ''; 
 
     try {
-        // Gọi hàm mới: getLocalIPs() trả về một MẢNG các IP
+        // Gọi hàm đã được sắp xếp: IP VPN sẽ là phần tử đầu tiên (nếu tìm thấy)
         const ipArray = await getLocalIPs(); 
         
         if (ipArray.length > 0) {
-            // Trường hợp 1: Tìm thấy ít nhất một IP
-            
-            // Lấy tất cả các IP và nối chúng lại thành một chuỗi
-            const allIPs = ipArray.join(', ');
+            const preferredIP = ipArray[0]; // Lấy IP ưu tiên nhất (192.168.45.*)
+            const allIPs = ipArray.join(', '); // Nối tất cả IP để hiển thị
 
             // HIỂN THỊ TOÀN BỘ DANH SÁCH IP
             myKaliIpDisplay.textContent = allIPs; 
             myKaliIpDisplay.style.color = 'var(--accent-color)';
             
-            // Bạn có thể chọn chỉ cho phép copy IP đầu tiên, hoặc không hiển thị nút copy.
-            // Ở đây, tôi giữ nút copy nhưng nó sẽ copy chuỗi tất cả IP.
-            copyKaliIpBtn.style.display = 'inline-flex'; // HIỂN THỊ NÚT COPY
+            // Gán IP ưu tiên vào nút copy (dù hiển thị tất cả, nhưng người dùng có thể muốn copy IP đầu tiên)
+            copyKaliIpBtn.dataset.ipToCopy = preferredIP; // Lưu IP để copy
+            copyKaliIpBtn.style.display = 'inline-flex'; 
             copyKaliIpBtn.classList.remove('copied');
 
-            // Xóa tooltip vì tất cả IP đã được hiển thị
-            myKaliIpDisplay.title = ''; 
-            
             // Log tất cả IP
-            console.log("All Local IPs found:", ipArray);
+            console.log("All Local IPs found (VPN first):", ipArray);
 
-            // Giữ lại logic chuyển hướng/tìm kiếm của bạn
             if (appState.currentView === 'search') handleSearch(); else showBookmarks();
 
         } else {
             // Trường hợp 2: Không tìm thấy bất kỳ IP nào
             myKaliIpDisplay.textContent = translations[appState.currentLang]?.ipNotFound || 'Local IP not found.';
             myKaliIpDisplay.style.color = 'red';
-            copyKaliIpBtn.style.display = 'none'; // ẨN NÚT COPY
+            copyKaliIpBtn.style.display = 'none'; 
             
-            // Giữ lại logic chuyển hướng/tìm kiếm của bạn
             if (appState.currentView === 'search') handleSearch(); else showBookmarks();
         }
         
@@ -514,17 +506,16 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error("Error getting IP:", error);
         myKaliIpDisplay.textContent = "Error getting IP.";
         myKaliIpDisplay.style.color = 'red';
-        myKaliIpDisplay.title = '';
-        copyKaliIpBtn.style.display = 'none'; // ẨN NÚT COPY KHI LỖI
+        copyKaliIpBtn.style.display = 'none'; 
         
-        // Giữ lại logic chuyển hướng/tìm kiếm của bạn
         if (appState.currentView === 'search') handleSearch(); else showBookmarks();
     } finally {
-        // Luôn bật lại nút sau khi hoàn thành
         getKaliIpBtn.disabled = false;
     }
 };
 
+// LƯU Ý: Bạn cần chỉnh sửa hàm copy của mình để sử dụng `copyKaliIpBtn.dataset.ipToCopy`
+// thay vì myKaliIpDisplay.textContent nếu bạn muốn chỉ copy IP ưu tiên.
 
   // *** SỬA LỖI: Logic Ghi chú (Khởi tạo trì hoãn) ***
   const initializeNoteEditor = () => {
