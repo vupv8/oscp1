@@ -390,98 +390,137 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Logic IP (getLocalIP, handleGetKaliIP) giữ nguyên
   /* ... getLocalIP, handleGetKaliIP giữ nguyên ... */
-  const getLocalIP = () => {
+ const getLocalIPs = () => {
     return new Promise((resolve) => {
-      let ips = { preferred: null, candidates: [] };
+      // Đổi tên biến để phản ánh việc thu thập nhiều IP hơn
+      let ips = { candidates: [] }; 
       try {
         window.RTCPeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
         const pc = new RTCPeerConnection({ iceServers: [] });
         const noop = function(){};
         pc.createDataChannel("");
         pc.createOffer(pc.setLocalDescription.bind(pc), noop);
+        
         pc.onicecandidate = function(ice){
           if(!ice || !ice.candidate || !ice.candidate.candidate) return;
+          
+          // Regex đơn giản hơn, chỉ cần tìm IP
           const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3}|[a-f0-9]{1,4}(:[a-f0-9]{1,4}){7})/i;
           const match = ipRegex.exec(ice.candidate.candidate);
           const ip = match ? match[1] : null;
+          
           if (ip) {
-             if (ip !== '0.0.0.0' && ip !== '::1' && !ip.startsWith('127.') && !ip.startsWith('169.254.') && !ips.candidates.includes(ip)&& ip.startsWith('192.168.45')) {
+             // Thêm các điều kiện kiểm tra IP nội bộ hợp lệ
+             // Giữ lại điều kiện '192.168.45' của bạn
+             if (
+                 ip !== '0.0.0.0' && 
+                 ip !== '::1' && 
+                 !ip.startsWith('127.') && 
+                 !ip.startsWith('169.254.') && 
+                 !ips.candidates.includes(ip) // Đảm bảo không trùng lặp
+                 // Bạn có thể giữ lại điều kiện này nếu muốn lọc ngay lập tức:
+                 // && ip.startsWith('192.168.45') 
+                 // HOẶC bỏ điều kiện này để thu thập tất cả IP nội bộ (private/loopback/public)
+             ) {
+                // Thêm vào danh sách mà không cần điều kiện '192.168.45' nếu muốn thu thập tất cả
                 ips.candidates.push(ip);
              }
           }
         };
+        
         setTimeout(() => {
           pc.close();
-          if (ips.candidates.length > 0) {
-            const ipPriority = (ip) => {
-                if (ip.startsWith('192.168.')) return 1;
-                if (ip.startsWith('10.')) return 2;
-                if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) return 3;
-                if (/^[0-9]{1,3}(\.[0-9]{1,3}){3}$/.test(ip)) return 4;
-                if (ip.includes(':')) return 6;
-                return 99;
-            };
-            ips.candidates.sort((a, b) => ipPriority(a) - ipPriority(b));
-            ips.candidates = ips.candidates.filter(ip => ipPriority(ip) <= 6);
-            ips.preferred = ips.candidates.length > 0 ? ips.candidates[0] : null;
+
+          // ----------------------------------------------------
+          // PHẦN SỬA ĐỔI: Loại bỏ logic sắp xếp và chọn 'preferred'
+          // ----------------------------------------------------
+
+          // Nếu bạn muốn lọc lại danh sách chỉ lấy các IP nội bộ (private IP ranges) 
+          // và bỏ qua các IP public/loopback/invalid, bạn có thể dùng lại hàm này:
+          const isPrivateIP = (ip) => {
+              if (ip.startsWith('192.168.') || ip.startsWith('10.') || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) {
+                  return true;
+              }
+              // Thêm kiểm tra IPv6 nội bộ nếu cần (vd: fe80::/10 cho link-local)
+              if (ip.includes(':') && ip.toLowerCase().startsWith('fe80')) {
+                  return true;
+              }
+              return false;
           }
-          resolve(ips);
-        }, 700);
+
+          // Lọc lại danh sách để chỉ giữ các IP nội bộ (nếu cần)
+          // Nếu bạn muốn giữ lại các IP nội bộ, hãy dùng dòng này:
+          ips.candidates = ips.candidates.filter(isPrivateIP);
+          
+          // Sau khi lọc (hoặc không lọc), ta chỉ trả về danh sách IP
+          resolve(ips.candidates); 
+
+        }, 700); // Tăng thời gian chờ nếu cần thêm thời gian để thu thập ICE candidates
       } catch (e) {
         console.error("WebRTC Error:", e);
-        resolve(ips);
+        resolve([]); // Trả về mảng rỗng nếu có lỗi
       }
     });
   };
   const handleGetKaliIP = async () => {
+    // Khởi tạo các trạng thái UI ban đầu
     myKaliIpDisplay.textContent = translations[appState.currentLang]?.gettingIP || 'Getting IP...';
     myKaliIpDisplay.style.display = 'block';
     getKaliIpBtn.disabled = true;
     myKaliIpDisplay.style.color = 'var(--text-secondary)';
-    myKaliIpDisplay.textContent = translations[appState.currentLang]?.gettingIP || 'Getting IP...';
-    myKaliIpDisplay.style.display = 'block'; // Hiển thị text loading
     copyKaliIpBtn.style.display = 'none'; // Ẩn nút copy khi đang load
+    myKaliIpDisplay.title = ''; // Xóa tooltip cũ
+
     try {
-      const ipResult = await getLocalIP();
-      if (ipResult.preferred) {
-          
-          myKaliIpDisplay.textContent = ipResult.preferred; // Chỉ gán địa chỉ IP
-          myKaliIpDisplay.style.color = 'var(--accent-color)';
-          copyKaliIpBtn.style.display = 'inline-flex'; // *** HIỂN THỊ NÚT COPY ***
-          copyKaliIpBtn.classList.remove('copied');
-          if (ipResult.candidates.length > 1) {
-              const otherIPs = ipResult.candidates.slice(1).join(', ');
-              myKaliIpDisplay.title = `Other IPs found: ${otherIPs}`;
-              console.log("Other IPs found:", ipResult.candidates.slice(1));
-          } else {
-              myKaliIpDisplay.title = '';
-          }
-      } else if (ipResult.candidates.length > 0) {
-           myKaliIpDisplay.textContent = `Found: ${ipResult.candidates[0]} (Check others?)`;
-           myKaliIpDisplay.style.color = 'orange';
-           copyKaliIpBtn.style.display = 'none'; // *** ẨN NÚT COPY ***
-           myKaliIpDisplay.title = `All IPs found: ${ipResult.candidates.join(', ')}`;
-           console.log("All IPs found:", ipResult.candidates);
-           if (appState.currentView === 'search') handleSearch(); else showBookmarks();
-      }
-      else {
-          myKaliIpDisplay.textContent = translations[appState.currentLang]?.ipNotFound || 'Local IP not found.';
-          myKaliIpDisplay.style.color = 'red';
-          copyKaliIpBtn.style.display = 'none'; // *** ẨN NÚT COPY ***
-          myKaliIpDisplay.title = '';
-          if (appState.currentView === 'search') handleSearch(); else showBookmarks();
-      }
+        // Gọi hàm mới: getLocalIPs() trả về một MẢNG các IP
+        const ipArray = await getLocalIPs(); 
+        
+        // Chọn IP ưu tiên (ví dụ: IP đầu tiên trong mảng)
+        const preferredIP = ipArray.length > 0 ? ipArray[0] : null;
+
+        if (preferredIP) {
+            // Trường hợp 1: Tìm thấy ít nhất một IP
+            
+            myKaliIpDisplay.textContent = preferredIP; // Hiển thị IP ưu tiên
+            myKaliIpDisplay.style.color = 'var(--accent-color)';
+            copyKaliIpBtn.style.display = 'inline-flex'; // HIỂN THỊ NÚT COPY
+            copyKaliIpBtn.classList.remove('copied');
+
+            if (ipArray.length > 1) {
+                // Nếu có nhiều hơn một IP, tạo tooltip hiển thị các IP khác
+                const otherIPs = ipArray.slice(1).join(', ');
+                myKaliIpDisplay.title = `Other IPs found: ${otherIPs}`;
+                console.log("Other IPs found:", otherIPs);
+            }
+            
+            // Giữ lại logic chuyển hướng/tìm kiếm của bạn nếu IP được tìm thấy
+            if (appState.currentView === 'search') handleSearch(); else showBookmarks();
+
+        } else {
+            // Trường hợp 2: Không tìm thấy bất kỳ IP nào
+            myKaliIpDisplay.textContent = translations[appState.currentLang]?.ipNotFound || 'Local IP not found.';
+            myKaliIpDisplay.style.color = 'red';
+            copyKaliIpBtn.style.display = 'none'; // ẨN NÚT COPY
+            
+            // Giữ lại logic chuyển hướng/tìm kiếm của bạn nếu IP không được tìm thấy
+            if (appState.currentView === 'search') handleSearch(); else showBookmarks();
+        }
+        
     } catch (error) {
-      console.error("Error getting IP:", error);
-      myKaliIpDisplay.textContent = "Error getting IP.";
-      myKaliIpDisplay.style.color = 'red';
-      myKaliIpDisplay.title = '';
-      copyKaliIpBtn.style.display = 'none'; // *** ẨN NÚT COPY KHI LỖI ***
-       if (appState.currentView === 'search') handleSearch(); else showBookmarks();
+        // Xử lý lỗi
+        console.error("Error getting IP:", error);
+        myKaliIpDisplay.textContent = "Error getting IP.";
+        myKaliIpDisplay.style.color = 'red';
+        myKaliIpDisplay.title = '';
+        copyKaliIpBtn.style.display = 'none'; // ẨN NÚT COPY KHI LỖI
+        
+        // Giữ lại logic chuyển hướng/tìm kiếm của bạn khi gặp lỗi
+        if (appState.currentView === 'search') handleSearch(); else showBookmarks();
     } finally {
-      getKaliIpBtn.disabled = false;
+        // Luôn bật lại nút sau khi hoàn thành
+        getKaliIpBtn.disabled = false;
     }
-  };
+};
 
 
   // *** SỬA LỖI: Logic Ghi chú (Khởi tạo trì hoãn) ***
