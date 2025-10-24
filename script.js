@@ -475,25 +475,28 @@ document.addEventListener('DOMContentLoaded', () => {
         // Gọi hàm mới: getLocalIPs() trả về một MẢNG các IP
         const ipArray = await getLocalIPs(); 
         
-        // Chọn IP ưu tiên (ví dụ: IP đầu tiên trong mảng)
-        const preferredIP = ipArray.length > 0 ? ipArray[0] : null;
-
-        if (preferredIP) {
+        if (ipArray.length > 0) {
             // Trường hợp 1: Tìm thấy ít nhất một IP
             
-            myKaliIpDisplay.textContent = preferredIP; // Hiển thị IP ưu tiên
+            // Lấy tất cả các IP và nối chúng lại thành một chuỗi
+            const allIPs = ipArray.join(', ');
+
+            // HIỂN THỊ TOÀN BỘ DANH SÁCH IP
+            myKaliIpDisplay.textContent = allIPs; 
             myKaliIpDisplay.style.color = 'var(--accent-color)';
+            
+            // Bạn có thể chọn chỉ cho phép copy IP đầu tiên, hoặc không hiển thị nút copy.
+            // Ở đây, tôi giữ nút copy nhưng nó sẽ copy chuỗi tất cả IP.
             copyKaliIpBtn.style.display = 'inline-flex'; // HIỂN THỊ NÚT COPY
             copyKaliIpBtn.classList.remove('copied');
 
-            if (ipArray.length > 1) {
-                // Nếu có nhiều hơn một IP, tạo tooltip hiển thị các IP khác
-                const otherIPs = ipArray.slice(1).join(', ');
-                myKaliIpDisplay.title = `Other IPs found: ${otherIPs}`;
-                console.log("Other IPs found:", otherIPs);
-            }
+            // Xóa tooltip vì tất cả IP đã được hiển thị
+            myKaliIpDisplay.title = ''; 
             
-            // Giữ lại logic chuyển hướng/tìm kiếm của bạn nếu IP được tìm thấy
+            // Log tất cả IP
+            console.log("All Local IPs found:", ipArray);
+
+            // Giữ lại logic chuyển hướng/tìm kiếm của bạn
             if (appState.currentView === 'search') handleSearch(); else showBookmarks();
 
         } else {
@@ -502,7 +505,7 @@ document.addEventListener('DOMContentLoaded', () => {
             myKaliIpDisplay.style.color = 'red';
             copyKaliIpBtn.style.display = 'none'; // ẨN NÚT COPY
             
-            // Giữ lại logic chuyển hướng/tìm kiếm của bạn nếu IP không được tìm thấy
+            // Giữ lại logic chuyển hướng/tìm kiếm của bạn
             if (appState.currentView === 'search') handleSearch(); else showBookmarks();
         }
         
@@ -514,7 +517,7 @@ document.addEventListener('DOMContentLoaded', () => {
         myKaliIpDisplay.title = '';
         copyKaliIpBtn.style.display = 'none'; // ẨN NÚT COPY KHI LỖI
         
-        // Giữ lại logic chuyển hướng/tìm kiếm của bạn khi gặp lỗi
+        // Giữ lại logic chuyển hướng/tìm kiếm của bạn
         if (appState.currentView === 'search') handleSearch(); else showBookmarks();
     } finally {
         // Luôn bật lại nút sau khi hoàn thành
